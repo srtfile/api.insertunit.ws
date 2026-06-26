@@ -394,6 +394,11 @@ class ResolveHandler(http.server.BaseHTTPRequestHandler):
 
 
 def serve(host: str, port: int, timeout: int) -> None:
+    import os
+    # Render (and most PaaS) injects PORT; honour it so health checks pass.
+    port = int(os.environ.get("PORT", port))
+    # Render requires binding to 0.0.0.0, not 127.0.0.1.
+    host = os.environ.get("HOST", host)
     ResolveHandler.timeout_sec = timeout
     with socketserver.ThreadingTCPServer((host, port), ResolveHandler) as srv:
         srv.allow_reuse_address = True
@@ -669,7 +674,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--timeout", type=int, default=20, help="HTTP timeout (seconds).")
     parser.add_argument("--serve", action="store_true",
                         help="Run as a local HTTP API server.")
-    parser.add_argument("--host", default="127.0.0.1", help="Bind host for --serve.")
+    parser.add_argument("--host", default="0.0.0.0", help="Bind host for --serve.")
     parser.add_argument("--port", type=int, default=8787, help="Bind port for --serve.")
     parser.add_argument("--build-html", action="store_true",
                         help="Print the self-contained HTML page to stdout and exit.")
