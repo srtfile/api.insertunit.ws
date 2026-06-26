@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stream Resolver</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a;
+    --accent: #6c8ef7; --green: #4ade80; --red: #f87171;
+    --yellow: #fbbf24; --text: #e2e8f0; --muted: #64748b;
+    --radius: 10px; --font: 'Inter', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font);
+         min-height: 100vh; padding: 24px 16px; }
+  h1 { font-size: 1.5rem; font-weight: 700; color: var(--accent);
+       margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 24px; }
+  .card { background: var(--surface); border: 1px solid var(--border);
+          border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
+  .input-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  input[type=text] {
+    flex: 1; min-width: 240px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); font-size: 0.9rem;
+    padding: 10px 14px; outline: none;
+    transition: border-color .2s;
+  }
+  input[type=text]:focus { border-color: var(--accent); }
+  button {
+    background: var(--accent); border: none; border-radius: 8px;
+    color: #fff; cursor: pointer; font-size: 0.9rem; font-weight: 600;
+    padding: 10px 20px; transition: opacity .2s;
+  }
+  button:hover { opacity: .85; }
+  button:disabled { opacity: .45; cursor: default; }
+  .badge {
+    display: inline-block; border-radius: 5px; font-size: 0.7rem;
+    font-weight: 700; letter-spacing: .05em; padding: 2px 7px;
+    text-transform: uppercase; vertical-align: middle; margin-right: 6px;
+  }
+  .badge-mpd  { background: #7c3aed; }
+  .badge-hls  { background: #0e7490; }
+  .badge-mp4  { background: #065f46; }
+  .badge-webm { background: #92400e; }
+  .badge-iframe { background: #3b3f58; }
+  .url-row {
+    align-items: flex-start; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; display: flex; gap: 8px; margin-top: 8px; padding: 10px 12px;
+  }
+  .url-text {
+    flex: 1; font-family: monospace; font-size: 0.78rem;
+    overflow-wrap: anywhere; color: var(--text); line-height: 1.5;
+  }
+  .copy-btn {
+    background: var(--border); border-radius: 5px; border: none;
+    color: var(--muted); cursor: pointer; flex-shrink: 0;
+    font-size: 0.75rem; padding: 4px 9px; transition: background .2s;
+  }
+  .copy-btn:hover { background: var(--accent); color: #fff; }
+  .section-title { color: var(--muted); font-size: 0.8rem; font-weight: 600;
+                   letter-spacing: .06em; margin: 18px 0 4px; text-transform: uppercase; }
+  .status-bar { font-size: 0.82rem; margin-top: 6px; }
+  .ok    { color: var(--green); }
+  .warn  { color: var(--yellow); }
+  .err   { color: var(--red); }
+  #spinner { display: none; color: var(--muted); font-size: 0.85rem; margin-top: 10px; }
+  #spinner.active { display: block; }
+  .protection-tag {
+    background: #7f1d1d; border-radius: 5px; color: #fca5a5;
+    display: inline-block; font-size: 0.75rem; margin: 2px 4px 2px 0;
+    padding: 2px 8px;
+  }
+  #empty-msg { color: var(--muted); font-size: 0.9rem; margin-top: 8px; }
+  .api-note { color: var(--muted); font-size: 0.78rem; margin-top: 10px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  @media (max-width: 480px) {
+    .input-row { flex-direction: column; }
+    button { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<h1>⚡ Stream Resolver</h1>
+<p class="sub">Extracts DASH / HLS / MP4 stream URLs from embed pages — one request, clean output.</p>
+
+<div class="card">
+  <div class="input-row">
+    <input type="text" id="urlInput" placeholder="https://api.insertunit.ws/embed/imdb/tt0373074"
+           onkeydown="if(event.key==='Enter')resolve()">
+    <button id="resolveBtn" onclick="resolve()">Resolve</button>
+  </div>
+  <div id="spinner">⏳ Fetching…</div>
+  <div id="apiBase" class="api-note"></div>
+</div>
+
+<div id="results"></div>
+
+<script>
+/* ---- configuration ----
+   When served by --serve the API is on the same origin.
+   When the HTML is opened as a local file (file://) the API must be
+   running somewhere — default http://localhost:8787
+   Override by appending  ?api=http://myserver:8787  to the page URL.
+*/
+(function(){
+  const params = new URLSearchParams(location.search);
+  const api = params.get('api') ||
+    (location.protocol === 'file:' ? 'http://localhost:8787' : '');
+  window._API = api;
+  const note = document.getElementById('apiBase');
+  if (api) note.innerHTML = `API: <a href="${api}/" target="_blank">${api}</a>`;
+})();
+
+function kindBadge(kind) {
+  const map = {mpd:'MPD',hls:'HLS',mp4:'MP4',webm:'WebM',iframe:'iframe'};
+  return `<span class="badge badge-${kind}">${map[kind]||kind}</span>`;
+}
+
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '✓';
+    setTimeout(() => btn.textContent = 'copy', 1200);
+  });
+}
+
+function renderUrls(urls, kind) {
+  return urls.map(u => `
+    <div class="url-row">
+      ${kindBadge(kind)}
+      <span class="url-text">${escHtml(u)}</span>
+      <button class="copy-btn" onclick="copyText(${JSON.stringify(u)}, this)">copy</button>
+    </div>`).join('');
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function resolve() {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) return;
+  const btn = document.getElementById('resolveBtn');
+  const spinner = document.getElementById('spinner');
+  const results = document.getElementById('results');
+  btn.disabled = true;
+  spinner.className = 'active';
+  results.innerHTML = '';
+
+  try {
+    const endpoint = window._API + '/resolve?url=' + encodeURIComponent(url);
+    const resp = await fetch(endpoint);
+    const data = await resp.json();
+    renderResult(data);
+  } catch(e) {
+    results.innerHTML = `<div class="card err">✖ ${escHtml(String(e))}<br>
+      Is the resolver running? Start it with: <code>python stream_resolver.py --serve</code></div>`;
+  } finally {
+    btn.disabled = false;
+    spinner.className = '';
+  }
+}
+
+function renderResult(data) {
+  const el = document.getElementById('results');
+  let html = '<div class="card">';
+
+  // status line
+  const statusClass = data.status === 'ok' ? 'ok' : data.status === 'blocked' ? 'warn' : 'err';
+  html += `<div class="status-bar">
+    Status: <span class="${statusClass}">${escHtml(data.status)}</span>
+    &nbsp;·&nbsp; HTTP ${data.http_status}
+    &nbsp;·&nbsp; <a href="${escHtml(data.final_url)}" target="_blank" rel="noopener">page ↗</a>
+  </div>`;
+
+  // protections
+  if (data.protections && data.protections.blocked) {
+    const sigs = Object.keys(data.protections.signals || {});
+    html += '<div style="margin-top:8px">';
+    sigs.forEach(s => { html += `<span class="protection-tag">⚠ ${escHtml(s)}</span>`; });
+    html += '</div>';
+  }
+
+  // errors
+  (data.errors || []).forEach(e => {
+    html += `<div class="err" style="margin-top:6px;font-size:.82rem">✖ ${escHtml(e)}</div>`;
+  });
+
+  // streams
+  const sections = [
+    ['mpd',   'DASH Manifests (MPD)'],
+    ['hls',   'HLS Master Playlists (M3U8)'],
+    ['mp4',   'Direct MP4'],
+    ['webm',  'Direct WebM'],
+    ['iframe','Nested Embed / Player URLs'],
+  ];
+
+  let found = 0;
+  sections.forEach(([key, label]) => {
+    const urls = data[key] || [];
+    if (!urls.length) return;
+    found += urls.length;
+    html += `<div class="section-title">${label}</div>`;
+    html += renderUrls(urls, key);
+  });
+
+  if (!found) {
+    html += '<div id="empty-msg">No stream URLs found in the page source.</div>';
+  } else {
+    html += `<div class="status-bar ok" style="margin-top:12px">✔ ${found} stream URL(s) found</div>`;
+  }
+
+  // copy-all button
+  if (found) {
+    const all = JSON.stringify(data.all_streams || [], null, 2);
+    html += `<div style="margin-top:12px">
+      <button class="copy-btn" style="font-size:.8rem;padding:6px 12px"
+        onclick="copyText(${JSON.stringify(all)}, this)">Copy all as JSON</button>
+    </div>`;
+  }
+
+  html += '</div>';
+  el.innerHTML = html;
+}
+</script>
+</body>
+</html>
