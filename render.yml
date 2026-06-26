@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: stream-resolver
+    runtime: python
+    buildCommand: "pip install --upgrade pip"
+    startCommand: "python stream_resolver.py --serve"
+    envVars:
+      - key: PORT
+        generateValue: false   # Render injects this automatically
+    healthCheckPath: /
