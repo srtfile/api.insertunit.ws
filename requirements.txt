@@ -1,0 +1,2 @@
+# No third-party dependencies — stdlib only.
+# This file exists so Render detects the repo as a Python service.
