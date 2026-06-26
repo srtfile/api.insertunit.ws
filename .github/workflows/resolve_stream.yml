@@ -1,0 +1,99 @@
+name: Resolve Stream URLs
+
+on:
+  workflow_dispatch:
+    inputs:
+      embed_url:
+        description: "Embed / player URL to resolve"
+        required: true
+        default: "https://api.insertunit.ws/embed/imdb/tt0373074"
+      timeout:
+        description: "HTTP timeout in seconds"
+        required: false
+        default: "20"
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Python 3.11 – stdlib only, no pip install needed
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Resolve stream URLs
+        id: resolver
+        run: |
+          python stream_resolver.py \
+            --url "${{ github.event.inputs.embed_url }}" \
+            --timeout "${{ github.event.inputs.timeout }}" \
+            --json > stream_result.json
+          cat stream_result.json
+
+      # Make the raw JSON available as an artifact
+      - name: Upload result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stream-result
+          path: stream_result.json
+
+      # Print a clean summary in the Actions UI
+      - name: Summary
+        if: always()
+        run: |
+          python - <<'PYEOF'
+          import json, os, sys
+
+          try:
+              with open("stream_result.json") as f:
+                  data = json.load(f)
+          except Exception as e:
+              print(f"Could not read result: {e}")
+              sys.exit(0)
+
+          lines = []
+          lines.append(f"## Stream Resolver Result")
+          lines.append(f"")
+          lines.append(f"| Field | Value |")
+          lines.append(f"|---|---|")
+          lines.append(f"| Status | `{data.get('status','')}` |")
+          lines.append(f"| HTTP | `{data.get('http_status','')}` |")
+          lines.append(f"| Final URL | {data.get('final_url','')} |")
+
+          prot = data.get("protections", {})
+          if prot.get("blocked"):
+              sigs = ", ".join(prot.get("signals", {}).keys())
+              lines.append(f"| ⚠ Protections | `{sigs}` |")
+
+          for section, label in [
+              ("mpd",   "DASH (MPD)"),
+              ("hls",   "HLS master (M3U8)"),
+              ("mp4",   "Direct MP4"),
+              ("webm",  "Direct WebM"),
+              ("iframe","Nested iframes"),
+          ]:
+              urls = data.get(section, [])
+              if not urls:
+                  continue
+              lines.append(f"")
+              lines.append(f"### {label}")
+              lines.append(f"```")
+              for u in urls:
+                  lines.append(u)
+              lines.append(f"```")
+
+          if not data.get("all_streams"):
+              lines.append(f"")
+              lines.append(f"> ⚠ No stream URLs found.")
+
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "")
+          if summary_path:
+              with open(summary_path, "a") as f:
+                  f.write("\n".join(lines) + "\n")
+          else:
+              print("\n".join(lines))
+          PYEOF
