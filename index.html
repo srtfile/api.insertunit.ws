@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stream Resolver</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #080b10;
+    --surface: #0d1117;
+    --surface2: #161b22;
+    --border: #21262d;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --purple: #bc8cff;
+    --cyan: #39c5cf;
+    --orange: #f0883e;
+    --text: #c9d1d9;
+    --muted: #484f58;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Inter', system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 32px 16px 64px;
+  }
+
+  /* ── header ── */
+  header {
+    max-width: 760px;
+    margin: 0 auto 32px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 20px;
+  }
+  .logo {
+    font-family: var(--mono);
+    font-size: 1.1rem;
+    color: var(--accent);
+    letter-spacing: .04em;
+    margin-bottom: 6px;
+  }
+  .logo span { color: var(--muted); }
+  header p {
+    font-size: 0.82rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  /* ── input card ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px;
+    max-width: 760px;
+    margin: 0 auto 16px;
+  }
+
+  .input-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  input[type=text] {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    padding: 10px 14px;
+    outline: none;
+    transition: border-color .15s;
+  }
+  input[type=text]:focus { border-color: var(--accent); }
+  input[type=text]::placeholder { color: var(--muted); }
+
+  button.resolve-btn {
+    background: var(--accent);
+    border: none;
+    border-radius: 6px;
+    color: #0d1117;
+    cursor: pointer;
+    font-family: var(--sans);
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 10px 18px;
+    white-space: nowrap;
+    transition: opacity .15s;
+  }
+  button.resolve-btn:hover { opacity: .85; }
+  button.resolve-btn:disabled { opacity: .4; cursor: default; }
+
+  /* ── spinner ── */
+  #spinner {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 0.8rem;
+    color: var(--muted);
+    font-family: var(--mono);
+  }
+  #spinner.active { display: flex; }
+  .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .dot:nth-child(2) { animation-delay: .2s; }
+  .dot:nth-child(3) { animation-delay: .4s; }
+  @keyframes pulse {
+    0%,80%,100% { opacity: .15; transform: scale(.8); }
+    40% { opacity: 1; transform: scale(1); }
+  }
+
+  /* ── results ── */
+  #results { max-width: 760px; margin: 0 auto; }
+
+  .result-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .result-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+    font-size: 0.78rem;
+    font-family: var(--mono);
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .status-dot.ok     { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-dot.err    { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+  .status-dot.warn   { background: var(--yellow);box-shadow: 0 0 6px var(--yellow); }
+
+  .http-code { color: var(--muted); }
+  .final-url {
+    color: var(--accent);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 420px;
+  }
+  .final-url:hover { text-decoration: underline; }
+
+  /* ── protection tags ── */
+  .prot-tags { padding: 10px 18px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 6px; }
+  .prot-tag {
+    background: #2d1515;
+    border: 1px solid #5a1a1a;
+    border-radius: 4px;
+    color: var(--red);
+    font-size: 0.72rem;
+    font-family: var(--mono);
+    padding: 2px 8px;
+  }
+
+  /* ── section label ── */
+  .section-label {
+    padding: 10px 18px 4px;
+    font-size: 0.68rem;
+    font-family: var(--mono);
+    color: var(--muted);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+  }
+
+  /* ── url rows ── */
+  .url-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 18px;
+    border-top: 1px solid var(--border);
+    transition: background .1s;
+  }
+  .url-row:hover { background: var(--surface2); }
+
+  .badge {
+    flex-shrink: 0;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    padding: 2px 7px;
+    text-transform: uppercase;
+    margin-top: 1px;
+  }
+  .badge-mpd   { background: #2d1f4e; color: var(--purple); border: 1px solid #4a2f80; }
+  .badge-hls   { background: #0d2a30; color: var(--cyan);   border: 1px solid #1a5060; }
+  .badge-mp4   { background: #0d2a1a; color: var(--green);  border: 1px solid #1a5030; }
+  .badge-webm  { background: #2a1a08; color: var(--orange); border: 1px solid #503010; }
+  .badge-iframe{ background: #1a1a2a; color: var(--muted);  border: 1px solid var(--border); }
+
+  .url-text {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    overflow-wrap: anywhere;
+    line-height: 1.6;
+    color: var(--text);
+  }
+
+  .copy-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    padding: 3px 9px;
+    transition: all .15s;
+  }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .copy-btn.copied { border-color: var(--green); color: var(--green); }
+
+  /* ── footer ── */
+  .result-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+    background: var(--surface2);
+    font-size: 0.78rem;
+    font-family: var(--mono);
+  }
+  .found-count { color: var(--green); }
+  .no-found    { color: var(--muted); }
+
+  .copy-all-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text);
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 4px 12px;
+    transition: all .15s;
+  }
+  .copy-all-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .empty-msg {
+    padding: 28px 18px;
+    text-align: center;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 0.82rem;
+  }
+
+  .error-msg {
+    padding: 14px 18px;
+    color: var(--red);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    border-top: 1px solid var(--border);
+  }
+
+  @media (max-width: 520px) {
+    .input-row { flex-direction: column; }
+    .final-url { max-width: 180px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">stream<span>_</span>resolver<span>.js</span></div>
+  <p>Extracts DASH · HLS · MP4 stream URLs from embed pages — client-side, no proxy.</p>
+</header>
+
+<div class="card">
+  <div class="input-row">
+    <input type="text" id="urlInput"
+      placeholder="https://api.insertunit.ws/embed/imdb/tt0373074"
+      onkeydown="if(event.key==='Enter')doResolve()">
+    <button class="resolve-btn" id="resolveBtn" onclick="doResolve()">Resolve</button>
+  </div>
+  <div id="spinner">
+    <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    <span>fetching…</span>
+  </div>
+</div>
+
+<div id="results"></div>
+
+<script>
+// ── constants ──
+const CHILD_RE = /\/index-[av]\d+\.m3u8|\/chunklist[^/]*\.m3u8|\/media_\d+\.m3u8|\/\d+p\.m3u8|init\.webm|\$Number\$/i;
+const URL_RE   = /\b(?:https?:)?\/\/[^\s"'<>\\)]{8,}/gi;
+const SRC_RE   = /\b(?:src|href|data-src)\s*=\s*["']([^"']{8,})["']/gi;
+const IFRAME_RE= /embed|iframe|player|stream|watch/i;
+
+const PROT_RE = {
+  captcha  : /captcha|hcaptcha|recaptcha|turnstile/i,
+  drm      : /widevine|playready|fairplay|ContentProtection|licenseUrl/i,
+  login    : /login|sign.?in|authentication required|unauthorized/i,
+  anti_bot : /cloudflare|cf-chl|bot.?detection|access denied|forbidden|challenge-platform/i,
+};
+
+// ── classify ──
+function classify(url) {
+  try {
+    const path = new URL(url).pathname.toLowerCase();
+    if (CHILD_RE.test(path + url)) return null;
+    if (/\.mpd([?#]|$)/.test(path))  return 'mpd';
+    if (/\.m3u8([?#]|$)/.test(path)) return 'hls';
+    if (/\.mp4([?#]|$)/.test(path))  return 'mp4';
+    if (/\.webm([?#]|$)/.test(path) && !url.includes('$')) return 'webm';
+  } catch(_) {}
+  return null;
+}
+
+// ── extract all URLs from text ──
+function extractUrls(text, base) {
+  const found = new Set();
+  let m;
+  URL_RE.lastIndex = 0;
+  while ((m = URL_RE.exec(text)) !== null) {
+    let u = m[0].replace(/^\/\//, 'https://');
+    try { found.add(new URL(u, base).href); } catch(_) {}
+  }
+  SRC_RE.lastIndex = 0;
+  while ((m = SRC_RE.exec(text)) !== null) {
+    let u = m[1];
+    if (u.startsWith('//')) u = 'https:' + u;
+    try { found.add(new URL(u, base).href); } catch(_) {}
+  }
+  return [...found];
+}
+
+// ── detect protections ──
+function detectProtections(text) {
+  const hits = {};
+  for (const [k, re] of Object.entries(PROT_RE)) {
+    if (re.test(text)) hits[k] = true;
+  }
+  return hits;
+}
+
+// ── fetch via allorigins (CORS bypass for GitHub Pages) ──
+async function fetchPage(url) {
+  // allorigins returns JSON with contents field
+  const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+  const r = await fetch(proxy);
+  if (!r.ok) throw new Error(`Proxy HTTP ${r.status}`);
+  const j = await r.json();
+  return { text: j.contents || '', status: j.status?.http_code || 200, finalUrl: url };
+}
+
+// ── main resolve ──
+async function resolve(url) {
+  const { text, status, finalUrl } = await fetchPage(url);
+  const out = { mpd: [], hls: [], mp4: [], webm: [], iframe: [] };
+  const prots = detectProtections(text);
+
+  const candidates = extractUrls(text, finalUrl);
+  const media = new Set();
+
+  for (const u of candidates) {
+    const k = classify(u);
+    if (k) { out[k].push(u); media.add(u); }
+  }
+
+  for (const u of candidates) {
+    try {
+      const p = new URL(u);
+      if (!media.has(u) && IFRAME_RE.test(p.pathname)) {
+        out.iframe.push(u);
+      }
+    } catch(_) {}
+  }
+
+  // deduplicate
+  for (const k of Object.keys(out)) out[k] = [...new Set(out[k])];
+
+  const all = [...new Set([...out.mpd, ...out.hls, ...out.mp4, ...out.webm, ...out.iframe])];
+  return { ...out, all_streams: all, http_status: status, final_url: finalUrl, protections: prots };
+}
+
+// ── UI ──
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function badge(kind) {
+  const labels = { mpd:'MPD', hls:'HLS', mp4:'MP4', webm:'WebM', iframe:'frame' };
+  return `<span class="badge badge-${kind}">${labels[kind]||kind}</span>`;
+}
+
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    btn.classList.add('copied');
+    btn.textContent = '✓';
+    setTimeout(() => { btn.classList.remove('copied'); btn.textContent = 'copy'; }, 1400);
+  });
+}
+
+function renderResult(data) {
+  const el = document.getElementById('results');
+
+  const statusClass = data.all_streams.length ? 'ok' : Object.keys(data.protections).length ? 'warn' : 'err';
+
+  let html = `<div class="result-card">`;
+
+  // header
+  html += `<div class="result-header">
+    <div class="status-dot ${statusClass}"></div>
+    <span class="http-code">HTTP ${data.http_status}</span>
+    <span style="color:var(--muted)">→</span>
+    <a class="final-url" href="${esc(data.final_url)}" target="_blank" rel="noopener">${esc(data.final_url)}</a>
+  </div>`;
+
+  // protections
+  const prots = Object.keys(data.protections);
+  if (prots.length) {
+    html += `<div class="prot-tags">`;
+    prots.forEach(p => { html += `<span class="prot-tag">⚠ ${esc(p)}</span>`; });
+    html += `</div>`;
+  }
+
+  const sections = [
+    ['mpd',   'DASH manifests'],
+    ['hls',   'HLS master playlists'],
+    ['mp4',   'Direct MP4'],
+    ['webm',  'Direct WebM'],
+    ['iframe','Nested embed URLs'],
+  ];
+
+  let found = 0;
+  sections.forEach(([key, label]) => {
+    const urls = data[key] || [];
+    if (!urls.length) return;
+    found += urls.length;
+    html += `<div class="section-label">${label}</div>`;
+    urls.forEach(u => {
+      html += `<div class="url-row">
+        ${badge(key)}
+        <span class="url-text">${esc(u)}</span>
+        <button class="copy-btn" onclick="copyText(${JSON.stringify(u)}, this)">copy</button>
+      </div>`;
+    });
+  });
+
+  if (!found) {
+    html += `<div class="empty-msg">no stream URLs found in page source</div>`;
+  }
+
+  // footer
+  html += `<div class="result-footer">`;
+  if (found) {
+    const allJson = JSON.stringify(data.all_streams, null, 2);
+    html += `<span class="found-count">✔ ${found} stream${found>1?'s':''} found</span>`;
+    html += `<button class="copy-all-btn" onclick="copyText(${JSON.stringify(allJson)}, this)">copy all JSON</button>`;
+  } else {
+    html += `<span class="no-found">0 streams found</span><span></span>`;
+  }
+  html += `</div></div>`;
+
+  el.innerHTML = html;
+}
+
+async function doResolve() {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) return;
+
+  const btn = document.getElementById('resolveBtn');
+  const spinner = document.getElementById('spinner');
+  const results = document.getElementById('results');
+
+  btn.disabled = true;
+  spinner.classList.add('active');
+  results.innerHTML = '';
+
+  try {
+    const data = await resolve(url);
+    renderResult(data);
+  } catch (e) {
+    results.innerHTML = `<div class="result-card"><div class="error-msg">✖ ${esc(String(e))}</div></div>`;
+  } finally {
+    btn.disabled = false;
+    spinner.classList.remove('active');
+  }
+}
+
+// auto-fill default URL
+document.getElementById('urlInput').value = 'https://api.insertunit.ws/embed/imdb/tt0373074';
+</script>
+</body>
+</html>
