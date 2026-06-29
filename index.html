@@ -35,7 +35,6 @@
     padding: 32px 16px 64px;
   }
 
-  /* ── header ── */
   header {
     max-width: 760px;
     margin: 0 auto 32px;
@@ -56,7 +55,6 @@
     line-height: 1.5;
   }
 
-  /* ── input card ── */
   .card {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -102,7 +100,6 @@
   button.resolve-btn:hover { opacity: .85; }
   button.resolve-btn:disabled { opacity: .4; cursor: default; }
 
-  /* ── spinner ── */
   #spinner {
     display: none;
     align-items: center;
@@ -126,7 +123,6 @@
     40% { opacity: 1; transform: scale(1); }
   }
 
-  /* ── results ── */
   #results { max-width: 760px; margin: 0 auto; }
 
   .result-card {
@@ -167,7 +163,6 @@
   }
   .final-url:hover { text-decoration: underline; }
 
-  /* ── protection tags ── */
   .prot-tags { padding: 10px 18px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 6px; }
   .prot-tag {
     background: #2d1515;
@@ -179,7 +174,6 @@
     padding: 2px 8px;
   }
 
-  /* ── section label ── */
   .section-label {
     padding: 10px 18px 4px;
     font-size: 0.68rem;
@@ -189,7 +183,6 @@
     text-transform: uppercase;
   }
 
-  /* ── url rows ── */
   .url-row {
     display: flex;
     align-items: flex-start;
@@ -241,7 +234,6 @@
   .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
   .copy-btn.copied { border-color: var(--green); color: var(--green); }
 
-  /* ── footer ── */
   .result-footer {
     display: flex;
     align-items: center;
@@ -366,8 +358,16 @@ function detectProtections(text) {
   return hits;
 }
 
-// ── multi-proxy waterfall ──
+// ── proxy waterfall ──
+// vixsrcproxy is first; others are fallbacks
 const PROXIES = [
+  async (url) => {
+    const r = await fetch(`https://vixsrcproxy2.khantara922.workers.dev/?url=${encodeURIComponent(url)}`);
+    if (!r.ok) throw new Error(`vixsrcproxy ${r.status}`);
+    const text = await r.text();
+    if (!text) throw new Error('vixsrcproxy empty');
+    return { text, status: r.status, finalUrl: url, via: 'vixsrcproxy' };
+  },
   async (url) => {
     const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
     if (!r.ok) throw new Error(`allorigins ${r.status}`);
@@ -457,7 +457,6 @@ async function resolve(url) {
     } catch(_) {}
   }
 
-  // deduplicate
   for (const k of Object.keys(out)) out[k] = [...new Set(out[k])];
 
   const all = [...new Set([...out.mpd, ...out.hls, ...out.mp4, ...out.webm, ...out.iframe])];
@@ -489,7 +488,6 @@ function renderResult(data) {
 
   let html = `<div class="result-card">`;
 
-  // header
   html += `<div class="result-header">
     <div class="status-dot ${statusClass}"></div>
     <span class="http-code">HTTP ${data.http_status}</span>
@@ -498,7 +496,6 @@ function renderResult(data) {
     ${data.via ? `<span style="margin-left:auto;color:var(--muted);font-size:.68rem">via ${esc(data.via)}</span>` : ''}
   </div>`;
 
-  // protections
   const prots = Object.keys(data.protections);
   if (prots.length) {
     html += `<div class="prot-tags">`;
@@ -533,7 +530,6 @@ function renderResult(data) {
     html += `<div class="empty-msg">no stream URLs found in page source</div>`;
   }
 
-  // footer
   html += `<div class="result-footer">`;
   if (found) {
     const allJson = JSON.stringify(data.all_streams, null, 2);
@@ -570,7 +566,6 @@ async function doResolve() {
   }
 }
 
-// auto-fill default URL
 document.getElementById('urlInput').value = 'https://api.insertunit.ws/embed/imdb/tt0373074';
 </script>
 </body>
