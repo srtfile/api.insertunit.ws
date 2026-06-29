@@ -366,19 +366,77 @@ function detectProtections(text) {
   return hits;
 }
 
-// ── fetch via allorigins (CORS bypass for GitHub Pages) ──
+// ── multi-proxy waterfall ──
+const PROXIES = [
+  async (url) => {
+    const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+    if (!r.ok) throw new Error(`allorigins ${r.status}`);
+    const j = await r.json();
+    if (!j.contents) throw new Error('allorigins empty');
+    return { text: j.contents, status: j.status?.http_code || 200, finalUrl: url, via: 'allorigins' };
+  },
+  async (url) => {
+    const r = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(url)}`, {
+      headers: { 'x-cors-api-key': 'temp_demo' }
+    });
+    if (!r.ok) throw new Error(`corsproxy.io ${r.status}`);
+    const text = await r.text();
+    if (!text) throw new Error('corsproxy.io empty');
+    return { text, status: r.status, finalUrl: r.url || url, via: 'corsproxy.io' };
+  },
+  async (url) => {
+    const r = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`);
+    if (!r.ok) throw new Error(`codetabs ${r.status}`);
+    const text = await r.text();
+    if (!text) throw new Error('codetabs empty');
+    return { text, status: r.status, finalUrl: url, via: 'codetabs' };
+  },
+  async (url) => {
+    const r = await fetch(`https://htmldriven.com/cors-proxy?url=${encodeURIComponent(url)}`);
+    if (!r.ok) throw new Error(`htmldriven ${r.status}`);
+    const text = await r.text();
+    if (!text) throw new Error('htmldriven empty');
+    return { text, status: r.status, finalUrl: url, via: 'htmldriven' };
+  },
+  async (url) => {
+    const r = await fetch(`https://proxy.cors.sh/${url}`, {
+      headers: { 'x-cors-api-key': 'temp_demo' }
+    });
+    if (!r.ok) throw new Error(`cors.sh ${r.status}`);
+    const text = await r.text();
+    if (!text) throw new Error('cors.sh empty');
+    return { text, status: r.status, finalUrl: url, via: 'cors.sh' };
+  },
+  async (url) => {
+    const r = await fetch(`https://crossorigin.me/${url}`);
+    if (!r.ok) throw new Error(`crossorigin.me ${r.status}`);
+    const text = await r.text();
+    if (!text) throw new Error('crossorigin.me empty');
+    return { text, status: r.status, finalUrl: url, via: 'crossorigin.me' };
+  },
+];
+
 async function fetchPage(url) {
-  // allorigins returns JSON with contents field
-  const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-  const r = await fetch(proxy);
-  if (!r.ok) throw new Error(`Proxy HTTP ${r.status}`);
-  const j = await r.json();
-  return { text: j.contents || '', status: j.status?.http_code || 200, finalUrl: url };
+  const errors = [];
+  for (const proxy of PROXIES) {
+    try {
+      const result = await Promise.race([
+        proxy(url),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000))
+      ]);
+      console.log(`✔ proxy: ${result.via}`);
+      return result;
+    } catch (e) {
+      errors.push(e.message);
+      console.warn(`proxy failed: ${e.message}`);
+    }
+  }
+  throw new Error(`All proxies failed:\n${errors.join('\n')}`);
 }
 
 // ── main resolve ──
 async function resolve(url) {
-  const { text, status, finalUrl } = await fetchPage(url);
+  const { text, status, finalUrl, via } = await fetchPage(url);
   const out = { mpd: [], hls: [], mp4: [], webm: [], iframe: [] };
   const prots = detectProtections(text);
 
@@ -403,7 +461,7 @@ async function resolve(url) {
   for (const k of Object.keys(out)) out[k] = [...new Set(out[k])];
 
   const all = [...new Set([...out.mpd, ...out.hls, ...out.mp4, ...out.webm, ...out.iframe])];
-  return { ...out, all_streams: all, http_status: status, final_url: finalUrl, protections: prots };
+  return { ...out, all_streams: all, http_status: status, final_url: finalUrl, protections: prots, via };
 }
 
 // ── UI ──
@@ -437,6 +495,7 @@ function renderResult(data) {
     <span class="http-code">HTTP ${data.http_status}</span>
     <span style="color:var(--muted)">→</span>
     <a class="final-url" href="${esc(data.final_url)}" target="_blank" rel="noopener">${esc(data.final_url)}</a>
+    ${data.via ? `<span style="margin-left:auto;color:var(--muted);font-size:.68rem">via ${esc(data.via)}</span>` : ''}
   </div>`;
 
   // protections
